@@ -47,7 +47,7 @@ const uint16_t PixelCount = 128;
 
 // Uart method is good for the Esp-01 or other pin restricted modules
 // NOTE: These will ignore the PIN and use GPI02 pin
-NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart800KbpsMethod> strip(PixelCount);
+NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1800KbpsMethod> strip(PixelCount);
 
 #include "index_html.h"
 
