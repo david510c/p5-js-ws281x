@@ -24,15 +24,15 @@ SOFTWARE.
 
 #if defined(ESP8266)
 #include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
+#include <WiFiClient.h>
 #include <WiFiUdp.h>
 #include <ESP8266WebServer.h>
-ESP8266WebServer Webserver(80);
-#include <ESP8266mDNS.h>
 #elif defined(ESP32)
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <WebServer.h>
-WebServer Webserver(80);
+// WebServer Webserver(80);
 #include <ESPmDNS.h>
 #else
 #error This works only on ESP8266 or ESP32
@@ -43,35 +43,42 @@ WebServer Webserver(80);
 #include <ArduinoJson.h>
 #include <NeoPixelBus.h>
 
-const uint16_t PixelCount = 128;
+const char DEVICE_NAME[] = "p5LEDGrid";
+const uint16_t PixelCount = 256;
 
 // Uart method is good for the Esp-01 or other pin restricted modules
 // NOTE: These will ignore the PIN and use GPI02 pin
-NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart800KbpsMethod> strip(PixelCount);
+NeoPixelBus<NeoGrbFeature, Neo800KbpsMethod> strip(PixelCount);
 
 #include "index_html.h"
-
+ESP8266WebServer WebServer(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
 
-const char DEVICE_NAME[] = "p5ledgrid";
 
-void handleRoot() {
-  Webserver.send_P(200, "text/html", INDEX_HTML);
+void configModeCallback (WiFiManager *myWiFiManager) {
+  Serial.println("Entered config mode");
+  Serial.println(WiFi.softAPIP());
+  //if you used auto generated SSID, print it
+  Serial.println(myWiFiManager->getConfigPortalSSID());
 }
 
-void handleNotFound(){
+void handleRoot() {
+  WebServer.send(200, "text/html", INDEX_HTML);
+}
+
+void handleNotFound() {
   String message = "File Not Found\n\n";
   message += "URI: ";
-  message += Webserver.uri();
+  message += WebServer.uri();
   message += "\nMethod: ";
-  message += (Webserver.method() == HTTP_GET)?"GET":"POST";
+  message += (WebServer.method() == HTTP_GET) ? "GET" : "POST";
   message += "\nArguments: ";
-  message += Webserver.args();
+  message += WebServer.args();
   message += "\n";
-  for (uint8_t i=0; i<Webserver.args(); i++){
-    message += " " + Webserver.argName(i) + ": " + Webserver.arg(i) + "\n";
+  for (uint8_t i = 0; i < WebServer.args(); i++) {
+    message += " " + WebServer.argName(i) + ": " + WebServer.arg(i) + "\n";
   }
-  Webserver.send(404, "text/plain", message);
+  WebServer.send(404, "text/plain", message);
 }
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length)
@@ -127,13 +134,13 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
     Arduino setup function (automatically called at startup)
 */
 /**************************************************************************/
+
 void webserver_setup()
 {
-  Webserver.on("/", handleRoot);
-
-  Webserver.onNotFound(handleNotFound);
-
-  Webserver.begin();
+  //Start HTTP server
+  WebServer.on("/", handleRoot);
+  WebServer.onNotFound(handleNotFound);
+  WebServer.begin();
   Serial.println(F("HTTP server started"));
 
   webSocket.begin();
@@ -148,11 +155,34 @@ void ledgrid_setup()
   strip.Show();
 }
 
-void setup()
-{
+void setup() {
+  // put your setup code here, to run once:
   Serial.begin(115200);
-  Serial.println(F("\np5 LED grid setup"));
 
+  //WiFiManager
+  //Local intialization. Once its business is done, there is no need to keep it around
+  WiFiManager wifiManager;
+  //reset settings - for testing
+  //wifiManager.resetSettings();
+
+  //set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
+  wifiManager.setAPCallback(configModeCallback);
+
+  //fetches ssid and pass and tries to connect
+  //if it does not connect it starts an access point with the specified name
+  //here  "AutoConnectAP"
+  //and goes into a blocking loop awaiting configuration
+  if (!wifiManager.autoConnect()) {
+    Serial.println("failed to connect and hit timeout");
+    //reset and try again, or maybe put it to deep sleep
+    ESP.reset();
+    delay(1000);
+
+  //if you get here you have connected to the WiFi
+  Serial.println("connected...yeey :)");
+  }
+
+  Serial.println(F("\np5 LED grid setup"));
   ledgrid_setup();
 
   // IOS and MacOS browsers may connect to p5button-a.local.
@@ -172,39 +202,12 @@ void setup()
   webserver_setup();
 }
 
-void loop()
+void loop(void)
 {
-  static bool Connected = false;
-
-  if (WiFi.status() == WL_CONNECTED) {
-    if (!Connected) {
-      Serial.print(F("WiFi connected! IP address: "));
-      Serial.println(WiFi.localIP());
-      Connected = true;
-    }
-  }
-  else {
-    if (Connected) {
-      Serial.println(F("WiFi not connected!"));
-      Connected = false;
-    }
-
-    //WiFiManager
-    //Local intialization. Once its business is done, there is no need to keep it around
-    WiFiManager wifiManager;
-    //reset saved settings
-    //wifiManager.resetSettings();
-
-    //fetches ssid and pass from Flash and tries to connect
-    //if it does not connect it starts an access point with the specified name
-    //and goes into a blocking loop awaiting configuration
-    wifiManager.autoConnect(DEVICE_NAME);
-
-    Serial.print(F("WiFi connected! IP address: "));
-    Serial.println(WiFi.localIP());
-    Connected = true;
-  }
-
+  // Websocket listner
   webSocket.loop();
-  Webserver.handleClient();
+
+  // Serving the webpage
+  WebServer.handleClient();
+  
 }
